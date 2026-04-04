@@ -19,7 +19,7 @@ Typical workflow:
 ```julia
 using SpikenautDistill
 
-# 1. Create and train a network on recorded telemetry
+# 1. Create and train a network on temporal sensor streams
 net = create_network()
 for (spikes, reward) in training_data
     eprop_update!(net, spikes, reward)
@@ -45,6 +45,6 @@ include("mem_export.jl")
 export LIFNeuron, EPropNetwork, TrainingMetrics
 export create_network, eprop_update!, fast_sigmoid_grad
 export extract_weights, distill_to_channels
-export export_parameters_mem, weights_to_q88_hex
+export export_parameters_mem, export_distilled_mem, weights_to_q88_hex
 
 end # module

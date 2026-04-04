@@ -1,0 +1,9 @@
+=== SpikenautDistill E-prop Tick Benchmark ===
+Warmup ticks: 5000
+Bench ticks : 50000
+Wall time   : 0.078s
+Mean tick   : 1.499 us
+Median tick : 0.260 us
+p95 tick    : 0.370 us
+p99 tick    : 0.790 us
+Throughput  : 643756 ticks/s

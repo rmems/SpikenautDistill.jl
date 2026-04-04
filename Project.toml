@@ -2,6 +2,7 @@ name = "SpikenautDistill"
 uuid = "c4d8e2f3-9a0b-4c1d-8e5f-2a3b4c5d6e7f"
 version = "0.1.0"
 license = "GPL-3.0-or-later"
+authors = ["Raul Montoya Cardenas <montoyaraul34@gmail.com>"]
 
 [deps]
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
