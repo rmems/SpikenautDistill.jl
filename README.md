@@ -1,150 +1,82 @@
-<p align="center">
-  <img src="docs/logo.png" width="220" alt="Spikenaut">
-</p>
+# SpikenautDistill.jl
 
-<h1 align="center">SpikenautDistill.jl</h1>
-<p align="center">Monte Carlo SNN training and FPGA distillation pipeline</p>
+**Modular online training for spiking neural networks in Julia — E-prop, OTTT, and more. Works with pure SNNs or hybrid SNN+LLM systems.**
 
-<p align="center">
-  <img src="https://img.shields.io/badge/language-Julia-9558B2" alt="Julia">
-  <img src="https://img.shields.io/badge/license-GPL--3.0-orange" alt="GPL-3.0">
-  <img src="https://img.shields.io/badge/status-active-success" alt="Status: Active">
-</p>
+`SpikenautDistill.jl` is a flexible and performant library for training spiking neural networks (SNNs) using online (event-based) learning rules. It is designed to be framework-agnostic, allowing researchers to bring their own models, loss functions, and data sources.
 
----
+## Core Philosophy
 
-Train large spiking neural network ensembles using E-prop, then distill them down to
-compact FPGA-ready parameter sets exported as Q8.8 `.mem` files for Vivado/Quartus
-`$readmemh` synthesis.
+- **Bring any loss**: The training process is driven by a user-provided loss function. This can be a standard metric like mean squared error for pure SNN tasks, or it can be a cross-entropy loss derived from a frozen large language model (LLM) in a hybrid setup.
+- **Apply any rule**: The library provides a modular system for learning rules, starting with e-prop and OTTT. Researchers can easily add their own rules.
+- **Update only the SNN**: In hybrid systems, the library is designed to update only the SNN parameters, leaving the external model (like an LLM) frozen.
 
-Maintained as part of the [Spikenaut organization](https://github.com/Spikenaut/spikenaut-ml).
+## Quick Start (Pure SNN Training)
 
-## Features
-
-- `export_parameters_mem(net, output_dir)` — direct bridge from Julia training to FPGA RAM init files
-- `EPropNetwork` — LIF network with eligibility traces and surrogate-gradient training
-- `eprop_update!(net, spikes, reward)` — online reward-modulated E-prop weight update
-- `distill_to_channels(weights, n_channels)` — reduce large networks to deployment size
-- `export_distilled_mem(distilled, output_dir)` — export distilled matrix to FPGA `.mem` files
-- `extract_weights(net)` — snapshot current network parameters
-
-## Installation
-
-```julia
-using Pkg
-Pkg.add("SpikenautDistill")
-```
-
-## Quick Start
+Here's a simple example of how to train an SNN using a standard loss function.
 
 ```julia
 using SpikenautDistill
-using Random
 
-# Create and train a network
-net = create_network()              # 16-neuron, 16-channel LIF network
-
-for t in 1:1000
-    spikes = Float32.(rand(Float32, 16) .< 0.1f0)  # sample spike input
-    reward = 0.8f0                                  # your reward signal
-    eprop_update!(net, spikes, reward)
+# 1. Define your SNN model
+mutable struct MySNN
+    weights::Matrix{Float32}
 end
 
-# Distill to 4-channel FPGA deployment
-W = extract_weights(net)         # 16×16 Float32
-W4 = distill_to_channels(W, 4)   # 4×4 Float32
+model = MySNN(rand(Float32, 10, 10))
 
-# Export for Vivado $readmemh
-export_distilled_mem(W4, "vivado_params/")
+# 2. Create a batch of spike data
+spike_data = rand(0:1, 10, 100)
+spike_batch = SpikeBatch(spike_data, nothing, nothing)
 
-# Or export full network parameters directly
-export_parameters_mem(net, "vivado_full/")
+# 3. Define a loss function
+mse_loss(output) = sum(output.logits .^ 2)
+
+# 4. Run a training step
+model, state = train_step!(model, spike_batch, mse_loss, rule=:eprop)
+
+println("Loss: ", state.loss)
 ```
 
-## FPGA Integration (Vivado/Quartus)
+For a complete, runnable example, see [`examples/pure_snn_training.jl`](file:///home/raulmc/SpikenautDistill.jl/examples/pure_snn_training.jl).
 
-`export_parameters_mem` is the hardware bridge: train in Julia, then drop generated
-hex files directly into your FPGA flow.
+## Hybrid Usage (with OLMoE Loss via `spikenaut-spine`)
 
-1. Train your `EPropNetwork` in Julia.
-2. Run `export_parameters_mem(net, "vivado_params/")`.
-3. Load emitted files in HDL (`$readmemh`):
-   - `parameters.mem` (thresholds)
-   - `parameters_weights.mem` (synaptic weights, row-major)
-   - `parameters_decay.mem` (membrane decay)
-4. Synthesize in Vivado or Quartus for Artix-7/Basys 3 style deployments.
+`SpikenautDistill.jl` is perfect for hybrid systems where an SNN is trained to distill knowledge from a larger model. The key is to provide a loss function that captures the output of the external model.
 
-This removes manual post-processing between simulation and bare-metal deployment.
+```julia
+# --- In your spikenaut-spine listener ---
 
-## Reproducible Hello World
+# Assume `llm_targets` are received from the LLM via the spine
+llm_targets = receive_from_spine().targets
 
-Run the self-contained OR-gate temporal learning example:
+# Create a closure for the loss function that captures the targets
+loss_fn = (output) -> cross_entropy(output.logits, llm_targets)
 
-```bash
-julia --project=. examples/logic_gate_learning.jl
+# Run the training step
+model, state = train_step!(model, spike_batch, loss_fn, rule=:eprop)
+
+# Send the gradients back to the spine to update the SNN in Rust
+send_to_spine(GradientUpdate(state.gradients))
 ```
 
-The script trains a small network, prints accuracy checkpoints, and exports FPGA-ready
-Q8.8 `.mem` files to `examples/out_logic_or/`.
+For a complete, runnable example, see [`examples/hybrid_olmoe_training.jl`](file:///home/raulmc/SpikenautDistill.jl/examples/hybrid_olmoe_training.jl).
 
-## E-prop Learning Rule
+## Available Rules
 
-Online eligibility-propagation with surrogate gradients:
+- `:eprop`: Eligibility propagation.
+- `:ottt`: Online Spatio-Temporal Trace Training.
 
-```
-ΔW_ij = η · r(t) · e_ij(t)
-e_ij(t) = λ · e_ij(t-1) + x_i(t-1) · σ'(v_j(t))
-σ'(v) = 1 / (1 + β|v|)²   (fast sigmoid surrogate)
-```
+## Custom Loss Functions
 
-*Bellec et al. (2020); Zenke & Ganguli (2018)*
+Any function that takes the model's output and returns a scalar loss is a valid loss function. The output of the model is whatever the `forward` function of your model returns.
 
-## Q8.8 Fixed-Point Export
+## Integration with the Spikenaut Ecosystem
 
-Weights are quantized as `round(w × 256)` and written as 4-digit hex lines, directly
-loadable by `WeightRam.sv` from [spikenaut-core-sv](https://github.com/Spikenaut/spikenaut-core-sv).
+`SpikenautDistill.jl` is designed to integrate seamlessly with the other components of the Spikenaut ecosystem:
 
-## Extracted from Production
+- **`spikenaut-spine`**: The spine can be used to pass spike data and LLM targets to `SpikenautDistill.jl` and to receive gradients for updating the SNN.
+- **`spikenaut-hybrid`**: The hybrid system can use `SpikenautDistill.jl` as its training engine for the SNN component.
 
-This package was extracted from [Eagle-Lander](https://github.com/rmems/Eagle-Lander),
-a private low-latency temporal signal-processing supervisor. The training and
-distillation logic is now decoupled from domain-specific internals for general use in
-bio-MEMS control, micro/nano-device automation, and edge robotics.
+## Contributing
 
-## Benchmarking
-
-Measure per-tick training latency locally:
-
-```bash
-julia --project=. benchmarks/eprop_tick_benchmark.jl
-```
-
-The benchmark reports median/p95/p99 µs per `eprop_update!` tick and total ticks/sec,
-so you can document results from your target workstation (for example, AMD Ryzen 9
-9950X) directly in your org docs.
-
-Sample output format:
-
-```text
-=== SpikenautDistill E-prop Tick Benchmark ===
-Warmup ticks: 5000
-Bench ticks : 50000
-Wall time   : 0.078s
-Mean tick   : 1.499 us
-Median tick : 0.260 us
-p95 tick    : 0.370 us
-p99 tick    : 0.790 us
-Throughput  : 643756 ticks/s
-```
-
-## Part of the Spikenaut Ecosystem
-
-| Library | Purpose |
-|---------|---------|
-| [SpikenautLSM.jl](https://github.com/Spikenaut/SpikenautLSM.jl) | GPU sparse liquid state machine |
-| [spikenaut-fpga](https://github.com/Spikenaut/spikenaut-fpga) | Rust-side FPGA export |
-| [spikenaut-core-sv](https://github.com/Spikenaut/spikenaut-core-sv) | FPGA neuron IP cores |
-
-## License
-
-GPL-3.0-or-later
+Contributions are welcome! Please open an issue or pull request to discuss your ideas.
