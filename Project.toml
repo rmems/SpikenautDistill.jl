@@ -7,7 +7,7 @@ authors = ["Raul Montoya Cardenas <montoyaraul34@gmail.com>"]
 
 [deps]
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
-MLUtils = "55f41855-322d-4573-a226-085732c525de"
+MLUtils = "f1d291b0-491e-4a28-83b9-f70985020b54"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
@@ -19,4 +19,6 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 test = ["Test"]
 
 [compat]
-julia = "1.9, 1.10, 1.11, 1.12"
+julia = "1.8"
+MLUtils = "0.1, 0.2, 0.3, 0.4"
+Zygote = "0.6, 0.7"
