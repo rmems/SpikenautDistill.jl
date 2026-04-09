@@ -37,7 +37,7 @@ model, state = train_step!(model, spike_batch, mse_loss, rule=:eprop)
 println("Loss: ", state.loss)
 ```
 
-For a complete, runnable example, see [`examples/pure_snn_training.jl`](file:///home/raulmc/SpikenautDistill.jl/examples/pure_snn_training.jl).
+For a complete, runnable example, see [`examples/pure_snn_training.jl`](examples/pure_snn_training.jl).
 
 ## Hybrid Usage (with OLMoE Loss via `spikenaut-spine`)
 
@@ -59,12 +59,47 @@ model, state = train_step!(model, spike_batch, loss_fn, rule=:eprop)
 send_to_spine(GradientUpdate(state.gradients))
 ```
 
-For a complete, runnable example, see [`examples/hybrid_olmoe_training.jl`](file:///home/raulmc/SpikenautDistill.jl/examples/hybrid_olmoe_training.jl).
+For a complete, runnable example, see [`examples/hybrid_olmoe_training.jl`](examples/hybrid_olmoe_training.jl).
 
 ## Available Rules
 
-- `:eprop`: Eligibility propagation.
-- `:ottt`: Online Spatio-Temporal Trace Training.
+- `:eprop`: Eligibility propagation. *(implementation in progress)*
+- `:ottt`: Online Spatio-Temporal Trace Training. *(implementation in progress)*
+
+## Surrogate Gradient Functions
+
+Three surrogate gradient functions for backpropagation through spiking neurons are exported and ready to use:
+
+```julia
+# Rectangular surrogate (default γ=10.0)
+surrogate_heaviside(x)
+
+# Sigmoid-based surrogate (default β=1.0)
+surrogate_sigmoid(x)
+
+# Exponential surrogate (default α=1.0)
+surrogate_exponential(x)
+```
+
+All three are broadcastable over arrays of membrane potentials, e.g. `surrogate_heaviside.(membrane_potentials)`.
+
+## Standalone Trainer
+
+For a complete, self-contained training pipeline that does not require defining your own model, use the script at [`scripts/spikenaut_train.jl`](scripts/spikenaut_train.jl). It implements a full LIF network with reward-modulated STDP and e-prop, reads JSONL event streams, and writes `snn_model.json` plus Q8.8 fixed-point `.mem` files ready for FPGA deployment.
+
+```bash
+julia scripts/spikenaut_train.jl <data_path> [epochs] [out_dir]
+
+# Examples:
+julia scripts/spikenaut_train.jl research/sensor_stream.jsonl 20 out_train
+julia scripts/spikenaut_train.jl research/chunked_data_dir/ 10 out_train
+```
+
+Output files written to `out_dir`:
+- `snn_model.json` — full network state (compatible with `train_snn` reload)
+- `parameters.mem` — Q8.8 hex thresholds
+- `parameters_weights.mem` — Q8.8 hex weights
+- `parameters_decay.mem` — Q8.8 hex decay rates
 
 ## Custom Loss Functions
 
